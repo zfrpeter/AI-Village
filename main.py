@@ -203,7 +203,7 @@ def tick_village():
                         other['emotion'] = "愤怒"
                         other['relationships'][villager['name']] = other['relationships'].get(villager['name'], 0) - 30
 
-            # 5. 打猎与采集（受基因影响）
+            # 5. 打猎与采集（受基因影响，新增日常记录）
             if "打猎" in action or "狩猎" in action:
                 stamina = villager['genome'].get("体力", {}).get("值", 1)
                 spatial = villager['genome'].get("空间想象", {}).get("值", 1)
@@ -214,6 +214,7 @@ def tick_village():
                 spatial = villager['genome'].get("空间想象", {}).get("值", 1)
                 food_gain = random.randint(3, 8) + spatial * 3
                 villager['food'] += food_gain
+                log_history(f"🌾 第{state['day']}天，{villager['name']}采集获得{food_gain}食物。")
 
             # 6. 首领晋升
             good_relations = sum(1 for v in villager.get('relationships', {}).values() if v >= 20)
@@ -282,15 +283,14 @@ def tick_village():
                     villager['food'] -= 20
                     mate['food'] -= 20
 
-            # 10. 死亡机制（寿命受基因影响）
+            # 10. 死亡机制（修复版：寿终正寝和饿死都会从名单移除）
             lifespan_gene = villager['genome'].get("寿命", {}).get("值", 1)
             max_age = 100 + lifespan_gene * 50
-            if villager['age'] >= max_age:
+            if villager['age'] >= max_age or villager['life'] <= 0:
                 villager['life'] = 0
-                log_history(f"💀 第{state['day']}天，{villager['name']}寿终正寝，享年{villager['age']}岁。")
-            elif villager['life'] <= 0:
                 state["villagers"].remove(villager)
-                log_history(f"💀 第{state['day']}天，{villager['name']}因生命耗尽去世，享年{villager['age']}岁。")
+                reason = "寿终正寝" if villager['age'] >= max_age else "因生命耗尽去世"
+                log_history(f"💀 第{state['day']}天，{villager['name']}{reason}，享年{villager['age']}岁。")
                 
         except Exception as e:
             print("裁判遇到问题：", e)
@@ -308,7 +308,11 @@ def tick_village():
     else:
         global_disaster = None
     
-    # 把最新状态存回文件
+    # 👇 新增：每日总结（确保历史书每天都会记录一笔）
+    alive_count = len(state["villagers"])
+    log_history(f"📊 第{state['day']}天结束：当前村庄共有 {alive_count} 人存活。")
+    
+    # 把最新状态存回文件（GitHub Actions会自动帮你提交回仓库）
     with open('villagers.json', 'w', encoding='utf-8') as f:
         json.dump(state, f, ensure_ascii=False, indent=2)
 
