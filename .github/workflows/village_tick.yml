@@ -8,18 +8,16 @@ jobs:
   run-village:
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # 关键！必须加，不然没权限把文件存回来
+      contents: write  # 必须要有这个权限
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Run village tick
-        env:
-          ZHIPU_API_KEY: ${{ secrets.ZHIPU_API_KEY }}
+      - name: Run test
         run: python main.py
-      - name: Save changes back to repo  # 关键！这一步负责把新数据提交回你的仓库
+      - name: Save changes back to repo
         run: |
           git config --global user.name "AI Village Bot"
           git config --global user.email "bot@ai-village.local"
