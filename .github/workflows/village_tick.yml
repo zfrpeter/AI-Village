@@ -1,11 +1,14 @@
 name: AI Village Tick
 on:
   schedule:
-    - cron: '*/15 * * * *'  # 每15分钟自动运行一次
-  workflow_dispatch:        # 允许你手动点击按钮运行
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
 jobs:
   run-village:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # 关键！必须加，不然没权限把文件存回来
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
@@ -14,5 +17,12 @@ jobs:
           python-version: '3.11'
       - name: Run village tick
         env:
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          ZHIPU_API_KEY: ${{ secrets.ZHIPU_API_KEY }}
         run: python main.py
+      - name: Save changes back to repo  # 关键！这一步负责把新数据提交回你的仓库
+        run: |
+          git config --global user.name "AI Village Bot"
+          git config --global user.email "bot@ai-village.local"
+          git add villagers.json history.log || true
+          git commit -m "Day ${{ github.run_number }}: 世界更新" || true
+          git push
