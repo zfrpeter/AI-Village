@@ -22,7 +22,8 @@ else:
 with open('world_rules.txt', 'r', encoding='utf-8') as f:
     rules = f.read()
 
-api_key = os.environ.get("GROQ_API_KEY")
+# 这里改成从环境变量里读取智谱的钥匙
+api_key = os.environ.get("ZHIPU_API_KEY")
 
 def tick_village():
     # 每次随机抽取3个村民进行互动
@@ -31,10 +32,11 @@ def tick_village():
         
         prompt = f"你叫{villager['name']}，你当前的生命值剩余{villager['life']}。世界规则：{rules}。你的记忆：{villager['memory']}。村子里有很多人。你想做什么？请用一句话描述你的行动或话语。"
         
+        # 把请求地址改成了智谱的官方地址
         req = urllib.request.Request(
-            "https://api.groq.com/openai/v1/chat/completions",
+            "https://open.bigmodel.cn/api/paas/v4/chat/completions",
             data=json.dumps({
-                "model": "llama3-8b-8192",
+                "model": "glm-4-flash",  # 换成智谱免费模型
                 "messages": [{"role": "user", "content": prompt}]
             }).encode('utf-8'),
             headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
