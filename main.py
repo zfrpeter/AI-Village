@@ -6,7 +6,7 @@ import time
 
 # ================== 配置区 ==================
 MAP_SIZE = 20
-DAILY_ACTIONS = 20
+DAILY_ACTIONS = 50  # 每天叫醒50个人，社会更活跃
 ZHIPU_API_KEY = os.environ.get("ZHIPU_API_KEY")
 
 # ================== 地图生成 ==================
@@ -127,8 +127,12 @@ if not state.get("villagers"):
     for i in range(1, 2001):
         x, y = random.randint(0, MAP_SIZE-1), random.randint(0, MAP_SIZE-1)
         state["villagers"].append({
-            "name": f"村民{i}", "memory": "我醒来了，周围有很多人。",
-            "life": 100, "food": 100, "water": 100, "age": 0,
+            "name": f"村民{i}",
+            "memory": "我醒来了，周围有很多人。",
+            "life": 100,       # 生命100，活100天
+            "food": 30,        # 初始食物只有30，活得很艰难
+            "water": 30,       # 初始水只有30
+            "age": 0,
             "x": x, "y": y, "village": get_village_name(x, y),
             "relationships": {}, "title": "", "tech": [], "tool": "手",
             "resources": [], "emotion": "平静", "reputation": 50,
@@ -140,9 +144,9 @@ else:
         v.setdefault("x", random.randint(0, MAP_SIZE-1))
         v.setdefault("y", random.randint(0, MAP_SIZE-1))
         v.setdefault("village", get_village_name(v.get("x",0), v.get("y",0)))
-        v.setdefault("water", 100); v.setdefault("tool", "手"); v.setdefault("resources", [])
+        v.setdefault("water", 30); v.setdefault("tool", "手"); v.setdefault("resources", [])
         v.setdefault("age", 0); v.setdefault("relationships", {}); v.setdefault("title", "")
-        v.setdefault("tech", []); v.setdefault("life", 100); v.setdefault("food", 100)
+        v.setdefault("tech", []); v.setdefault("life", 100); v.setdefault("food", 30)
         v.setdefault("emotion", "平静"); v.setdefault("reputation", 50); v.setdefault("beliefs", "没有信仰")
         if "genome" not in v: v["genome"] = generate_genome()
 
@@ -215,8 +219,6 @@ def tick_village():
             result = json.loads(response.read().decode('utf-8'))
             action = result['choices'][0]['message']['content']
             
-            # 注：食物/水/年龄的每日消耗已移到循环外的"全民每日结算"，这里只处理行动效果
-
             # 1. 自由探索
             if random.random() < 0.3 or "探索" in action or "移动" in action:
                 dx, dy = random.choice([(-1,0),(1,0),(0,-1),(0,1)])
@@ -329,9 +331,9 @@ def tick_village():
                 villager['memory'] = villager['memory'][-200:]
             print(f"{villager['name']}{villager.get('title', '')} 行动完毕。")
             
-            # 9. 繁衍（仅在附近有合适伴侣时）
-            if villager['age'] >= 20 and villager['food'] > 50 and villager['water'] > 50 and random.random() < 0.15:
-                possible_mates = [v for v in nearby if v['age'] >= 18 and v.get('relationships', {}).get(villager['name'], 0) >= 10]
+            # 9. 繁衍（5岁即可繁衍）
+            if villager['age'] >= 5 and villager['food'] > 50 and villager['water'] > 50 and random.random() < 0.15:
+                possible_mates = [v for v in nearby if v['age'] >= 5 and v.get('relationships', {}).get(villager['name'], 0) >= 10]
                 if possible_mates:
                     mate = random.choice(possible_mates)
                     child_genome = {}
@@ -344,7 +346,7 @@ def tick_village():
                     new_name = f"新生{random.randint(1000, 9999)}"
                     state["villagers"].append({
                         "name": new_name, "memory": f"我出生于第{state['day']}天。", "life": 100,
-                        "food": 100, "water": 100, "age": 0, "x": villager["x"], "y": villager["y"],
+                        "food": 30, "water": 30, "age": 0, "x": villager["x"], "y": villager["y"],
                         "village": villager["village"], "relationships": {}, "title": "", "tech": [],
                         "tool": "手", "resources": [], "emotion": "平静", "reputation": 50,
                         "beliefs": "没有信仰", "genome": child_genome
@@ -362,11 +364,12 @@ def tick_village():
         if v.get("life", 0) <= 0:
             continue
         metabolism = v['genome'].get("代谢效率", {}).get("值", 1)
-        food_cost = max(2, 8 - metabolism)
-        water_cost = max(2, 8 - metabolism)
+        # 消耗大幅提高：每个人每天至少消耗5点食物和水
+        food_cost = max(5, 15 - metabolism)
+        water_cost = max(5, 15 - metabolism)
         if global_disaster:
-            food_cost += 3
-            water_cost += 3
+            food_cost += 5
+            water_cost += 5
         
         v['food'] -= food_cost
         v['water'] -= water_cost
@@ -408,7 +411,7 @@ def tick_village():
     
     # ========== 天灾与天数推进 ==========
     state["day"] += 1
-    if random.random() < 0.1:
+    if random.random() < 0.15:
         global_disaster = random.choice(["寒冬", "干旱", "瘟疫"])
         log_history(f"🌪️ --- 第{state['day']}天，发生【{global_disaster}】！---")
     else:
