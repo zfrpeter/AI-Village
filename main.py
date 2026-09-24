@@ -20,7 +20,6 @@ def generate_map():
     return grid
 
 def get_village_name(x, y):
-    """根据坐标划分村落（东西南北中）"""
     mid = MAP_SIZE // 2
     if x < mid and y < mid: return "西北村"
     if x >= mid and y < mid: return "东北村"
@@ -97,10 +96,21 @@ if os.path.exists('villagers.json'):
     except Exception:
         pass
 
+# 保险：无论旧文件缺什么键，都补上
+state.setdefault("villagers", [])
+state.setdefault("disasters", [])
+state.setdefault("map", {})
+state.setdefault("animals", [])
+state.setdefault("tech_level", 0)
+state.setdefault("day", 1)
+
 if not state.get("map"):
+    print("正在生成地图...")
     state["map"] = generate_map()
 
 if not state.get("animals"):
+    print("正在生成动物...")
+    state["animals"] = []
     animal_types = ["野鹿", "野猪", "狼", "兔子", "熊"]
     for i in range(100):
         atype = random.choice(animal_types)
@@ -161,7 +171,6 @@ def tick_village():
         villager["terrain"] = terrain
         villager["village"] = get_village_name(villager["x"], villager["y"])
         
-        # 附近的人（相邻或同格）
         nearby = [v for v in state["villagers"]
                   if abs(v.get("x",0)-villager["x"]) + abs(v.get("y",0)-villager["y"]) <= 1
                   and v["name"] != villager["name"]]
@@ -217,7 +226,7 @@ def tick_village():
             if villager['food'] <= 0: villager['life'] -= 10; villager['food'] = 0; log_history(f"⚠️ 第{state['day']}天，{villager['name']}食物耗尽！")
             if villager['water'] <= 0: villager['life'] -= 15; villager['water'] = 0; log_history(f"⚠️ 第{state['day']}天，{villager['name']}缺水！")
 
-            # 3. 自由探索（随机移动机制）
+            # 3. 自由探索
             if random.random() < 0.3 or "探索" in action or "移动" in action:
                 dx, dy = random.choice([(-1,0),(1,0),(0,-1),(0,1)])
                 nx, ny = max(0, min(MAP_SIZE-1, villager['x']+dx)), max(0, min(MAP_SIZE-1, villager['y']+dy))
@@ -225,7 +234,7 @@ def tick_village():
                 villager['village'] = get_village_name(nx, ny)
                 log_history(f"🚶 第{state['day']}天，{villager['name']}移动到了({nx},{ny})，进入{villager['village']}。")
 
-            # 4. 地形行为（采集/打猎/喝水）
+            # 4. 地形行为
             if "河流" in terrain: villager['water'] += 30
             elif "森林" in terrain:
                 if "打猎" in action or "狩猎" in action:
@@ -251,9 +260,7 @@ def tick_village():
             # 6. 村落冲突与打架
             if nearby and ("攻击" in action or "打" in action or "抢" in action or "杀" in action):
                 target = random.choice(nearby)
-                # 只有不同村落或者关系差才打架（防止同村误伤，但AI执意要打也没办法）
                 if target["village"] != villager["village"] or villager['relationships'].get(target['name'], 0) < 0:
-                    # 计算战斗力
                     atk_a = villager['genome'].get("攻击倾向", {}).get("值", 1) + villager['genome'].get("体力", {}).get("值", 1)
                     for t in TOOL_TREE:
                         if t["name"] == villager.get("tool", "手"): atk_a += t["atk_bonus"]
@@ -261,12 +268,10 @@ def tick_village():
                     for t in TOOL_TREE:
                         if t["name"] == target.get("tool", "手"): atk_b += t["atk_bonus"]
                     
-                    # 消耗食物和水
                     villager['food'] -= 10; villager['water'] -= 10
                     target['food'] -= 10; target['water'] -= 10
                     
                     if atk_a > atk_b:
-                        # A 胜利
                         loot = min(20, target['food'])
                         target['food'] -= loot; villager['food'] += loot
                         target['life'] -= 20
@@ -276,7 +281,6 @@ def tick_village():
                             log_history(f"💀 第{state['day']}天，{target['name']}在冲突中阵亡。")
                             state["villagers"].remove(target)
                     else:
-                        # B 胜利
                         target['reputation'] += 5
                         villager['life'] -= 20
                         log_history(f"⚔️ 第{state['day']}天，{villager['village']}的{villager['name']}攻击{target['village']}的{target['name']}失败，反被重伤！")
@@ -393,8 +397,6 @@ def generate_map_html():
 body { background: #111; color: #eee; font-family: monospace; }
 table { border-collapse: collapse; margin: 20px auto; }
 td { width: 30px; height: 30px; text-align: center; font-size: 16px; border: 1px solid #333; }
-.villager { font-size: 10px; color: yellow; }
-.animal { font-size: 10px; color: red; }
 h1 { text-align: center; } .stat { text-align: center; margin-top: 20px; }
 </style></head><body>
 <h1>🗺️ AI Village Map - Day """ + str(state["day"]) + """</h1><table>"""
