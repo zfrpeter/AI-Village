@@ -96,7 +96,6 @@ if os.path.exists('villagers.json'):
     except Exception:
         pass
 
-# 保险：无论旧文件缺什么键，都补上
 state.setdefault("villagers", [])
 state.setdefault("disasters", [])
 state.setdefault("map", {})
@@ -191,7 +190,7 @@ def tick_village():
         生命{villager['life']}，食物{villager['food']}，水{villager['water']}，年龄{villager['age']}。
         天赋：{genome_text}。情绪：{villager['emotion']}。工具：{villager.get('tool', '手')}。资源：{"，".join(villager.get("resources", [])) or "无"}。
         
-        附近的人：{nearby_names}（属于其他村落）。
+        附近的人：{nearby_names}。
         附近的动物：{nearby_animal_names}。
         你的人际关系：{relation_text}。科技：{tech_text}。
         天气：{disaster_text}。规则：{rules}。记忆：{villager['memory']}。
@@ -216,17 +215,9 @@ def tick_village():
             result = json.loads(response.read().decode('utf-8'))
             action = result['choices'][0]['message']['content']
             
-            # 1. 基础消耗
-            metabolism = villager['genome'].get("代谢效率", {}).get("值", 1)
-            food_cost = max(2, 8 - metabolism); water_cost = max(2, 8 - metabolism)
-            if global_disaster: food_cost += 3; water_cost += 3
-            villager['life'] -= 1; villager['food'] -= food_cost; villager['water'] -= water_cost; villager['age'] += 1
+            # 注：食物/水/年龄的每日消耗已移到循环外的"全民每日结算"，这里只处理行动效果
 
-            # 2. 饥饿与口渴
-            if villager['food'] <= 0: villager['life'] -= 10; villager['food'] = 0; log_history(f"⚠️ 第{state['day']}天，{villager['name']}食物耗尽！")
-            if villager['water'] <= 0: villager['life'] -= 15; villager['water'] = 0; log_history(f"⚠️ 第{state['day']}天，{villager['name']}缺水！")
-
-            # 3. 自由探索
+            # 1. 自由探索
             if random.random() < 0.3 or "探索" in action or "移动" in action:
                 dx, dy = random.choice([(-1,0),(1,0),(0,-1),(0,1)])
                 nx, ny = max(0, min(MAP_SIZE-1, villager['x']+dx)), max(0, min(MAP_SIZE-1, villager['y']+dy))
@@ -234,30 +225,42 @@ def tick_village():
                 villager['village'] = get_village_name(nx, ny)
                 log_history(f"🚶 第{state['day']}天，{villager['name']}移动到了({nx},{ny})，进入{villager['village']}。")
 
-            # 4. 地形行为
-            if "河流" in terrain: villager['water'] += 30
+            # 2. 地形行为
+            if "河流" in terrain:
+                villager['water'] = min(100, villager['water'] + 30)
             elif "森林" in terrain:
                 if "打猎" in action or "狩猎" in action:
                     food_gain = random.randint(5, 15) + villager['genome'].get("体力", {}).get("值", 1) * 3 + 10
                     villager['food'] += food_gain
                     log_history(f"🏹 第{state['day']}天，{villager['name']}打猎获得{food_gain}食物。")
-                if "采木" in action and "木头" not in villager["resources"]: villager["resources"].append("木头")
+                if "采木" in action and "木头" not in villager["resources"]:
+                    villager["resources"].append("木头")
+                    log_history(f"🪵 第{state['day']}天，{villager['name']}采集了木头。")
             elif "山地" in terrain:
-                if "采石" in action and "石头" not in villager["resources"]: villager["resources"].append("石头")
+                if "采石" in action and "石头" not in villager["resources"]:
+                    villager["resources"].append("石头")
+                    log_history(f"🪨 第{state['day']}天，{villager['name']}采集了石头。")
                 if "挖矿" in action and random.random() < 0.3:
                     ore = random.choice(["铜矿", "铁矿", "稀有矿"])
-                    if ore not in villager["resources"]: villager["resources"].append(ore); log_history(f"⛏️ 第{state['day']}天，{villager['name']}挖到了{ore}！")
+                    if ore not in villager["resources"]:
+                        villager["resources"].append(ore)
+                        log_history(f"⛏️ 第{state['day']}天，{villager['name']}挖到了{ore}！")
             elif "平原" in terrain:
-                if "种地" in action: villager['food'] += 10
+                if "种地" in action or "种植" in action:
+                    villager['food'] += 10
+                    log_history(f"🌾 第{state['day']}天，{villager['name']}种地获得10食物。")
+            elif "海洋" in terrain:
+                if "滤水器" in villager.get("tech", []):
+                    villager['water'] = min(100, villager['water'] + 30)
 
-            # 5. 打猎动物
+            # 3. 打猎动物
             if nearby_animals and ("打猎" in action or "攻击" in action):
                 animal = random.choice(nearby_animals)
                 villager['food'] += animal["food_value"]; villager['life'] -= animal["danger"]
                 state["animals"].remove(animal)
                 log_history(f"🐗 第{state['day']}天，{villager['name']}猎杀了{animal['type']}。")
 
-            # 6. 村落冲突与打架
+            # 4. 村落冲突与打架
             if nearby and ("攻击" in action or "打" in action or "抢" in action or "杀" in action):
                 target = random.choice(nearby)
                 if target["village"] != villager["village"] or villager['relationships'].get(target['name'], 0) < 0:
@@ -279,18 +282,16 @@ def tick_village():
                         log_history(f"⚔️ 第{state['day']}天，{villager['village']}的{villager['name']}击败了{target['village']}的{target['name']}，抢走{loot}食物！")
                         if target['life'] <= 0:
                             log_history(f"💀 第{state['day']}天，{target['name']}在冲突中阵亡。")
-                            state["villagers"].remove(target)
                     else:
                         target['reputation'] += 5
                         villager['life'] -= 20
                         log_history(f"⚔️ 第{state['day']}天，{villager['village']}的{villager['name']}攻击{target['village']}的{target['name']}失败，反被重伤！")
                         if villager['life'] <= 0:
                             log_history(f"💀 第{state['day']}天，{villager['name']}在冲突中阵亡。")
-                            state["villagers"].remove(villager)
                 else:
                     log_history(f"🤝 第{state['day']}天，{villager['name']}试图攻击同村的{target['name']}，被制止了。")
 
-            # 7. 发明与工具进化
+            # 5. 发明与工具进化
             if "发明" in action or "制作" in action or "制造" in action:
                 if "生火" in action and "火" not in villager.get("tech", []):
                     villager.setdefault("tech", []).append("火"); villager['reputation'] += 10
@@ -305,7 +306,7 @@ def tick_village():
                     if evolved in ["青铜器", "铁器", "合金", "新型材料"]:
                         state["tech_level"] = max(state.get("tech_level", 0), TOOL_TREE[[t["name"] for t in TOOL_TREE].index(evolved)]["min_tech"])
 
-            # 8. 关系与心理
+            # 6. 关系与心理
             for other in nearby:
                 if other["name"] in action:
                     if "帮助" in action or "给" in action:
@@ -316,18 +317,19 @@ def tick_village():
                         villager['relationships'][other['name']] = villager['relationships'].get(other['name'], 0) - 20
                         villager['emotion'] = "愤怒"; other['emotion'] = "愤怒"
 
-            # 9. 首领晋升
+            # 7. 首领晋升
             good_relations = sum(1 for v in villager.get('relationships', {}).values() if v >= 20)
             if good_relations >= 5 and villager.get('reputation', 0) > 70 and not villager.get('title', ''):
                 villager['title'] = "[首领]"
                 log_history(f"👑 第{state['day']}天，{villager['name']}成为了{villager['village']}的【首领】！")
 
-            # 10. 记忆压缩
+            # 8. 记忆压缩
             villager['memory'] += f" | 第{state['day']}天：{action}"
-            if len(villager['memory']) > 200: villager['memory'] = villager['memory'][-200:]
+            if len(villager['memory']) > 200:
+                villager['memory'] = villager['memory'][-200:]
             print(f"{villager['name']}{villager.get('title', '')} 行动完毕。")
             
-            # 11. 繁衍
+            # 9. 繁衍（仅在附近有合适伴侣时）
             if villager['age'] >= 20 and villager['food'] > 50 and villager['water'] > 50 and random.random() < 0.15:
                 possible_mates = [v for v in nearby if v['age'] >= 18 and v.get('relationships', {}).get(villager['name'], 0) >= 10]
                 if possible_mates:
@@ -348,27 +350,52 @@ def tick_village():
                         "beliefs": "没有信仰", "genome": child_genome
                     })
                     log_history(f"👶 第{state['day']}天，{villager['name']}和{mate['name']}生育了 {new_name}！")
-
-            # 12. 死亡
-            lifespan_gene = villager['genome'].get("寿命", {}).get("值", 1)
-            max_age = 100 + lifespan_gene * 50
-            if villager['age'] >= max_age or villager['life'] <= 0:
-                villager['life'] = 0; state["villagers"].remove(villager)
-                reason = "寿终正寝" if villager['age'] >= max_age else "死亡"
-                log_history(f"💀 第{state['day']}天，{villager['name']}{reason}，享年{villager['age']}岁。")
                 
         except Exception as e:
             print("裁判遇到问题：", e)
             break
         time.sleep(2)
 
-    # 天灾与总结
-    state["day"] += 1
-    if random.random() < 0.1:
-        global_disaster = random.choice(["寒冬", "干旱", "瘟疫"])
-        log_history(f"🌪️ --- 第{state['day']}天，发生【{global_disaster}】！---")
-    else: global_disaster = None
+    # ========== 全民每日结算 ==========
+    print("正在结算全体村民的每日消耗...")
+    for v in state["villagers"]:
+        if v.get("life", 0) <= 0:
+            continue
+        metabolism = v['genome'].get("代谢效率", {}).get("值", 1)
+        food_cost = max(2, 8 - metabolism)
+        water_cost = max(2, 8 - metabolism)
+        if global_disaster:
+            food_cost += 3
+            water_cost += 3
+        
+        v['food'] -= food_cost
+        v['water'] -= water_cost
+        v['age'] += 1
+        v['life'] -= 1
+        
+        # 饥饿/口渴
+        if v['food'] <= 0:
+            v['life'] -= 10
+            v['food'] = 0
+            log_history(f"⚠️ 第{state['day']}天，{v['name']}食物耗尽！")
+        if v['water'] <= 0:
+            v['life'] -= 15
+            v['water'] = 0
+            log_history(f"⚠️ 第{state['day']}天，{v['name']}缺水！")
+        
+        # 死亡判定
+        lifespan_gene = v['genome'].get("寿命", {}).get("值", 1)
+        max_age = 100 + lifespan_gene * 50
+        if v['age'] >= max_age or v['life'] <= 0:
+            v['life'] = 0
+            reason = "寿终正寝" if v['age'] >= max_age else "死亡"
+            log_history(f"💀 第{state['day']}天，{v['name']}{reason}，享年{v['age']}岁。")
     
+    # 清理死者
+    state["villagers"] = [v for v in state["villagers"] if v.get("life", 0) > 0]
+    print(f"结算完毕，剩余 {len(state['villagers'])} 人。")
+    
+    # ========== 动物自然繁殖 ==========
     if len(state["animals"]) < 200 and random.random() < 0.3:
         atype = random.choice(["野鹿", "野猪", "狼", "兔子", "熊"])
         state["animals"].append({
@@ -378,6 +405,14 @@ def tick_village():
             "food_value": 20 if atype in ["野鹿", "野猪", "熊"] else 8,
             "danger": 3 if atype in ["狼", "熊"] else 1
         })
+    
+    # ========== 天灾与天数推进 ==========
+    state["day"] += 1
+    if random.random() < 0.1:
+        global_disaster = random.choice(["寒冬", "干旱", "瘟疫"])
+        log_history(f"🌪️ --- 第{state['day']}天，发生【{global_disaster}】！---")
+    else:
+        global_disaster = None
     
     alive_count = len(state["villagers"])
     log_history(f"📊 第{state['day']}天结束：当前村庄共有 {alive_count} 人存活。")
