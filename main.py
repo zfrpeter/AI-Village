@@ -5,7 +5,7 @@ import random
 import time
 
 # ================== 配置区 ==================
-MAP_SIZE = 20
+MAP_SIZE = 100
 DAILY_ACTIONS = 50  # 每天叫醒50个人，社会更活跃
 ZHIPU_API_KEY = os.environ.get("ZHIPU_API_KEY")
 
